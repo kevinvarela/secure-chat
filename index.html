@@ -23,7 +23,14 @@
             </div>
             <h1>P2P SecureChat</h1>
         </div>
-        <p class="tagline">Chat cifrado de extremo a extremo, directo entre navegadores. Sin servidores, sin cuentas, sin historial.</p>
+        <p class="tagline">Chat cifrado de extremo a extremo, directo entre navegadores. Sin servidores y sin cuentas.</p>
+
+        <!-- Chats guardados en este dispositivo -->
+        <div id="saved-chats" class="card saved-chats" hidden>
+            <h2>Tus chats</h2>
+            <ul id="chat-list" class="chat-list"></ul>
+            <p class="hint">Se guardan solo en este navegador (código e historial). Para hablar, la otra persona también debe tener el chat abierto.</p>
+        </div>
 
         <div class="role-grid">
             <div class="card">
@@ -50,12 +57,13 @@
                 <div class="brand-icon" aria-hidden="true">
                     <svg viewBox="0 0 24 24"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                 </div>
-                <span>P2P SecureChat</span>
+                <span id="chat-name" class="chat-name">P2P SecureChat</span>
                 <span id="role-badge" class="badge"></span>
             </div>
 
-            <!-- Solo visible para el host -->
-            <div id="host-code-card" class="card" hidden>
+            <!-- Cuerpo con scroll: código y participantes -->
+            <div class="sidebar-body">
+            <div id="host-code-card" class="card">
                 <h2>Código de la sala</h2>
                 <div class="row">
                     <input id="host-code" class="input mono" type="text" readonly>
@@ -73,18 +81,22 @@
                 <p class="hint">Comparad el <strong>número de seguridad</strong> por otro medio (llamada, en persona). Si coincide, nadie está interceptando la conversación.</p>
             </div>
 
-            <div class="sidebar-footer">
-                <div class="status">
-                    <span id="status-dot" class="dot dot-wait"></span>
-                    <span id="status-text">Conectando…</span>
-                </div>
-                <button id="btn-leave" class="btn btn-ghost" type="button">Salir</button>
             </div>
 
-            <!-- Solo en móvil: pasar a la vista de chat a pantalla completa -->
-            <button id="btn-open-chat" class="btn btn-primary btn-block mobile-only" type="button">
-                Ir al chat <span id="unread-badge" class="unread" hidden></span>
-            </button>
+            <!-- Pie fijo: siempre visible -->
+            <div class="sidebar-footer">
+                <div class="footer-row">
+                    <div class="status">
+                        <span id="status-dot" class="dot dot-wait"></span>
+                        <span id="status-text">Conectando…</span>
+                    </div>
+                    <button id="btn-leave" class="btn btn-ghost" type="button" title="Volver a tus chats">Salir</button>
+                </div>
+                <!-- Solo en móvil: pasar a la vista de chat a pantalla completa -->
+                <button id="btn-open-chat" class="btn btn-primary btn-block mobile-only" type="button">
+                    Ir al chat <span id="unread-badge" class="unread" hidden></span>
+                </button>
+            </div>
         </aside>
 
         <main class="chat">
@@ -93,7 +105,7 @@
                         title="Volver a la sala" aria-label="Volver a la sala">
                     <svg viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
                 </button>
-                <h2>Sala <span id="room-label" class="mono accent"></span></h2>
+                <h2 id="room-title" class="room-title"></h2>
                 <span id="e2ee-badge" class="badge badge-off">Sin conexión cifrada</span>
             </header>
 

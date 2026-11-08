@@ -19,7 +19,10 @@ export const el = {
   statusDot: $('status-dot'),
   statusText: $('status-text'),
   btnLeave: $('btn-leave'),
-  roomLabel: $('room-label'),
+  roomTitle: $('room-title'),
+  chatName: $('chat-name'),
+  savedChats: $('saved-chats'),
+  chatList: $('chat-list'),
   e2eeBadge: $('e2ee-badge'),
   overlay: $('chat-overlay'),
   overlayTitle: $('overlay-title'),
@@ -94,14 +97,19 @@ export function showStart() {
   setBusy(false);
 }
 
-export function showChat({ role, code, roomId }) {
+// Con historial previo el overlay no tapa los mensajes: el estado se ve en el pie.
+let hasHistory = false;
+
+export function showChat({ role, code, name, history = [] }) {
   el.screenStart.hidden = true;
   el.screenChat.hidden = false;
   el.roleBadge.textContent = role === 'host' ? 'Host' : 'Invitado';
-  el.hostCodeCard.hidden = role !== 'host';
-  el.hostCode.value = role === 'host' ? code : '';
-  el.roomLabel.textContent = `#${roomId.slice(0, 8)}`;
+  el.chatName.textContent = name;
+  el.roomTitle.textContent = name;
+  el.hostCode.value = code;
   el.messages.replaceChildren();
+  for (const m of history) appendMessage({ ...m, restored: true });
+  hasHistory = history.length > 0;
   renderPeers([]);
   setConnection({ state: 'waiting', role });
   setView('panel');
@@ -132,7 +140,7 @@ export function setConnection({ state, role, count = 0, error }) {
   el.messageInput.disabled = !ready;
   el.btnSend.disabled = !ready;
 
-  el.overlay.classList.toggle('is-hidden', ready);
+  el.overlay.classList.toggle('is-hidden', ready || (hasHistory && state !== 'error'));
   el.overlay.classList.toggle('is-error', state === 'error');
   if (state === 'error') {
     el.overlayTitle.textContent = 'No se pudo conectar';
@@ -173,18 +181,25 @@ export function renderPeers(peers, onVerify) {
 
 // ---------- mensajes ----------
 
-const timeNow = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const formatTime = ts => {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString()
+    ? time
+    : `${d.toLocaleDateString([], { day: '2-digit', month: '2-digit' })} ${time}`;
+};
 
-export function appendMessage({ text, from, mine }) {
+export function appendMessage({ text, from, mine, ts = Date.now(), restored = false }) {
   const wrap = h('div', `msg ${mine ? 'msg-me' : 'msg-peer'}`);
   const inner = h('div', 'msg-inner');
   inner.appendChild(h('span', 'msg-meta', mine ? 'Tú' : `Participante ${from}`));
   inner.appendChild(h('p', 'msg-bubble', text));
-  const meta = h('span', 'msg-meta', timeNow());
+  const meta = h('span', 'msg-meta', formatTime(ts));
   inner.appendChild(meta);
   wrap.appendChild(inner);
+  if (restored) wrap.classList.add('msg-restored');
   pushMessage(wrap);
-  if (!mine) countUnread();
+  if (!mine && !restored) countUnread();
   return {
     markFailed(reason) {
       wrap.classList.add('msg-failed');
@@ -218,4 +233,59 @@ export async function copyText(text, inputFallback) {
     inputFallback?.select();
     return false;
   }
+}
+
+// ---------- lista de chats guardados ----------
+
+const formatDate = ts =>
+  ts ? new Date(ts).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+
+export function renderChatList(chats, { onOpen, onRename, onDelete }) {
+  el.savedChats.hidden = chats.length === 0;
+  el.chatList.replaceChildren(
+    ...chats.map(chat => {
+      const li = h('li', 'chat-item');
+      const main = h('div', 'chat-item-main');
+      const name = h('span', 'chat-item-name', chat.name);
+      const role = chat.role === 'host' ? 'Host' : 'Invitado';
+      const last = chat.lastMessage || chat.lastOpened;
+      main.append(name, h('span', 'chat-item-meta', `${role} · ${formatDate(last)} · ${chat.code.slice(0, 9)}…`));
+
+      const actions = h('div', 'chat-item-actions');
+      const btnOpen = h('button', 'btn btn-primary btn-small', 'Abrir');
+      const btnRename = h('button', 'btn btn-ghost btn-small', '✎');
+      const btnDelete = h('button', 'btn btn-ghost btn-small btn-danger', 'Borrar');
+      btnRename.title = 'Renombrar';
+      btnRename.setAttribute('aria-label', `Renombrar ${chat.name}`);
+      btnDelete.setAttribute('aria-label', `Borrar ${chat.name}`);
+      for (const b of [btnOpen, btnRename, btnDelete]) b.type = 'button';
+      btnOpen.addEventListener('click', () => onOpen(chat.id));
+      btnDelete.addEventListener('click', () => onDelete(chat.id));
+      btnRename.addEventListener('click', () => {
+        // Edición en línea: Intro o perder el foco guarda, Escape cancela.
+        const input = h('input', 'input');
+        input.value = chat.name;
+        input.maxLength = 40;
+        input.setAttribute('aria-label', 'Nuevo nombre');
+        let done = false;
+        const finish = save => {
+          if (done) return;
+          done = true;
+          if (save) onRename(chat.id, input.value);
+          else input.replaceWith(name);
+        };
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') finish(true);
+          if (e.key === 'Escape') finish(false);
+        });
+        input.addEventListener('blur', () => finish(true));
+        name.replaceWith(input);
+        input.focus();
+        input.select();
+      });
+      actions.append(btnOpen, btnRename, btnDelete);
+      li.append(main, actions);
+      return li;
+    })
+  );
 }

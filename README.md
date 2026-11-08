@@ -8,6 +8,10 @@ Chat cifrado de extremo a extremo que funciona **directamente entre navegadores*
 2. **Invitado:** pega el código en **Tengo un código** y pulsa **Conectar**.
 3. Cuando os conectéis, comparad el **número de seguridad** por otro medio (llamada, en persona). Si coincide, nadie está interceptando la conversación.
 
+### Tus chats
+
+Cada sala que creas o a la que te unes se guarda en **Tus chats**, en la pantalla inicial, con un nombre editable y su historial. Para volver a una sala pulsa **Abrir**: se reconecta con el mismo código, sin tener que compartirlo otra vez. La otra persona también tiene que tener ese chat abierto, porque los mensajes viajan directamente entre los dos navegadores. Los chats solo se eliminan cuando pulsas **Borrar**.
+
 También se puede abrir `https://…/index.html#<código>` para precargar el código. El fragmento `#` nunca se envía a ningún servidor.
 
 ## Ejecutar
@@ -28,6 +32,7 @@ css/styles.css        estilos
 js/app.js             roles host/invitado, salas Trystero, handshake y mensajes
 js/crypto.js          derivación de claves, ECDH, AES-GCM, números de seguridad
 js/ui.js              DOM (solo textContent, nunca innerHTML)
+js/storage.js         chats guardados e historial (localStorage)
 vendor/trystero.js    Trystero 0.26.0 empaquetado localmente (sin CDN)
 ```
 
@@ -44,7 +49,9 @@ vendor/trystero.js    Trystero 0.26.0 empaquetado localmente (sin CDN)
 - Quien tenga el código puede entrar a la sala. Compártelo solo con quien corresponda.
 - No hay servidor TURN, así que algunas redes muy restrictivas (NAT simétrico, redes corporativas) pueden impedir la conexión directa.
 - Los relays de Nostr y el otro participante ven tu dirección IP (inherente a WebRTC).
-- Los mensajes no se guardan: al recargar se pierden.
+- Los chats guardados (código e historial) quedan **sin cifrar** en el `localStorage` del navegador. Quien tenga acceso a ese dispositivo o perfil puede leerlos o reabrir la sala. Bórralos si usas un equipo compartido.
+- Las claves por par se generan de nuevo en cada sesión, así que al reabrir un chat cambia el número de seguridad y hay que volver a verificarlo.
+- No hay mensajes diferidos: si la otra persona no tiene el chat abierto, el mensaje no se envía.
 
 ## Actualizar Trystero
 

@@ -14,6 +14,7 @@ import {
   sealMessage
 } from './crypto.js';
 import * as ui from './ui.js';
+import * as store from './storage.js';
 
 const { el } = ui;
 
@@ -50,10 +51,17 @@ async function startSession(role, secret) {
   }
   if (token !== sessionCounter) return; // se inició otra sesión mientras derivábamos
 
+  const code = formatCode(secret);
+  // Se guarda en "Tus chats" para poder volver sin compartir el código de nuevo.
+  const chat = store.upsertChat({ code, role });
+  const history = store.loadHistory(chat.id);
+  role = chat.role;
+
   const s = {
     token,
     role,
-    code: formatCode(secret),
+    chat,
+    code,
     material,
     identity,
     peers: new Map(), // peerId -> estado criptográfico del par
@@ -62,11 +70,13 @@ async function startSession(role, secret) {
   };
   session = s;
 
-  ui.showChat({ role, code: s.code, roomId: material.roomId });
+  ui.showChat({ role, code: s.code, name: chat.name, history });
   ui.appendSystem(
-    role === 'host'
-      ? 'Sala creada. Comparte el código y espera a que la otra persona se conecte.'
-      : 'Buscando al host de la sala…'
+    history.length
+      ? 'Chat reabierto. Esperando a que la otra persona lo abra también…'
+      : role === 'host'
+        ? 'Sala creada. Comparte el código y espera a que la otra persona se conecte.'
+        : 'Buscando al host de la sala…'
   );
 
   try {
@@ -130,7 +140,10 @@ async function leaveSession({ silent = false } = {}) {
   session = null;
   if (!s) return;
   s.peers.clear();
-  if (!silent) ui.showStart(); // la interfaz responde al instante; la desconexión sigue en segundo plano
+  if (!silent) {
+    ui.showStart(); // la interfaz responde al instante; la desconexión sigue en segundo plano
+    renderChats();
+  }
   try {
     await s.room?.leave();
   } catch (err) {
@@ -226,7 +239,9 @@ async function receiveMessage(s, peer, data) {
   if (env.seq <= peer.recvSeq) return;
   peer.recvSeq = env.seq;
   if (text.length > MAX_TEXT_CHARS) return;
-  ui.appendMessage({ text, from: peer.label, mine: false });
+  const entry = { text, from: peer.label, mine: false, ts: Date.now() };
+  store.appendHistory(s.chat.id, entry);
+  ui.appendMessage(entry);
 }
 
 async function sendMessage(text) {
@@ -238,7 +253,9 @@ async function sendMessage(text) {
     return;
   }
 
-  const bubble = ui.appendMessage({ text, mine: true });
+  const entry = { text, mine: true, ts: Date.now() };
+  store.appendHistory(s.chat.id, entry);
+  const bubble = ui.appendMessage(entry);
   const results = await Promise.allSettled(
     targets.map(async peer => {
       const env = await sealMessage(peer.sendKey, 'msg', ++peer.sendSeq, text);
@@ -293,6 +310,38 @@ function refreshPeers() {
   });
   ui.setConnection({ state: joined.length ? 'ready' : 'waiting', role: s.role, count: joined.length });
 }
+
+// ---------------------------------------------------------------------------
+// Chats guardados
+// ---------------------------------------------------------------------------
+
+function renderChats() {
+  ui.renderChatList(store.listChats(), {
+    onOpen: id => {
+      const chat = store.getChat(id);
+      const secret = chat && parseCode(chat.code);
+      if (!secret) {
+        ui.toast('Este chat guardado está dañado', 'error');
+        return;
+      }
+      startSession(chat.role, secret);
+    },
+    onRename: (id, name) => {
+      store.renameChat(id, name);
+      renderChats();
+    },
+    onDelete: id => {
+      const chat = store.getChat(id);
+      if (!chat) return;
+      if (!confirm(`¿Borrar "${chat.name}"?\n\nSe eliminarán el código y el historial de este dispositivo. Para volver a hablar necesitarás que te compartan el código otra vez.`)) return;
+      store.deleteChat(id);
+      renderChats();
+      ui.toast('Chat borrado');
+    }
+  });
+}
+
+renderChats();
 
 el.btnHost.addEventListener('click', () => startSession('host', generateSecret()));
 
