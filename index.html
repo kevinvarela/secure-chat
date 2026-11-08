@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat P2P Seguro | Trystero</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Trystero Torrent version for tracker-based WebRTC signaling -->
+    <script src="https://unpkg.com/trystero/dist/trystero-torrent.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .toast {
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+            opacity: 0;
+            transform: translateY(-20px);
+            pointer-events: none;
+        }
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .message-enter {
+            animation: slideIn 0.3s ease-out forwards;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col md:flex-row overflow-hidden selection:bg-indigo-500 selection:text-white">
+
+    <!-- Notificaciones Toast -->
+    <div id="toast-container" class="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col gap-2"></div>
+
+    <!-- Panel Lateral: Conexión y Configuración -->
+    <aside class="w-full md:w-1/3 lg:w-1/4 bg-slate-900 border-r border-slate-700 flex flex-col p-6 shadow-xl z-10">
+        <div class="mb-8 flex items-center gap-3">
+            <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-500/30">
+                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight text-white">P2P SecureChat</h1>
+        </div>
+
+        <div class="space-y-6 flex-1">
+            <!-- Mi Hash -->
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700">
+                <h2 class="text-sm font-semibold text-slate-400 mb-2 uppercase tracking-wider">Tu Hash Público</h2>
+                <div class="flex items-center gap-2">
+                    <input type="text" id="my-hash" readonly class="w-full bg-slate-900 text-indigo-300 font-mono text-sm px-3 py-2 rounded-lg border border-slate-700 focus:outline-none truncate">
+                    <button onclick="copyMyHash()" class="bg-indigo-600 hover:bg-indigo-500 text-white p-2 rounded-lg transition-colors shadow-md" title="Copiar Hash">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                    </button>
+                </div>
+                <p class="text-xs text-slate-500 mt-2">Comparte este hash con la persona con la que quieres hablar.</p>
+            </div>
+
+            <div class="relative flex items-center py-2">
+                <div class="flex-grow border-t border-slate-700"></div>
+                <span class="flex-shrink-0 mx-4 text-slate-500 text-xs uppercase font-medium">o conéctate</span>
+                <div class="flex-grow border-t border-slate-700"></div>
+            </div>
+
+            <!-- Conectar a Hash -->
+            <div class="bg-slate-800 p-4 rounded-2xl border border-slate-700">
+                <h2 class="text-sm font-semibold text-slate-400 mb-2 uppercase tracking-wider">Unirse a un Hash</h2>
+                <div class="flex flex-col gap-3">
+                    <input type="text" id="partner-hash" placeholder="Pega el hash aquí..." class="w-full bg-slate-900 text-white font-mono text-sm px-3 py-2 rounded-lg border border-slate-700 focus:outline-none focus:border-indigo-500 transition-colors">
+                    <button onclick="connectToPartner()" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-lg transition-colors shadow-lg shadow-indigo-600/20 flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Conectar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="mt-auto pt-6 border-t border-slate-700">
+            <div class="flex items-center gap-3">
+                <div id="status-dot" class="w-3 h-3 rounded-full bg-yellow-500 animate-pulse"></div>
+                <span id="status-text" class="text-sm font-medium text-slate-300">Esperando conexión...</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Área de Chat -->
+    <main class="flex-1 flex flex-col bg-slate-950 relative">
+        <!-- Overlay si no hay pares -->
+        <div id="chat-overlay" class="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center transition-opacity duration-300">
+            <div class="w-16 h-16 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <h3 class="text-xl font-medium text-white mb-2">No hay nadie en este Hash</h3>
+            <p class="text-slate-400 text-center max-w-sm">Comparte tu Hash o conéctate al de otra persona para empezar una conversación encriptada P2P.</p>
+        </div>
+
+        <!-- Encabezado del Chat -->
+        <header class="h-16 border-b border-slate-800 flex items-center px-6 bg-slate-900/50">
+            <h2 class="text-lg font-semibold text-white">Sala de Chat <span id="current-room-display" class="text-indigo-400 font-mono text-sm ml-2"></span></h2>
+            <div class="ml-auto flex items-center gap-2 bg-slate-800 px-3 py-1 rounded-full border border-slate-700">
+                <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                <span class="text-xs font-medium text-slate-300">AES-GCM E2EE Activo</span>
+            </div>
+        </header>
+
+        <!-- Mensajes -->
+        <div id="messages-container" class="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-hide flex flex-col">
+            <!-- Los mensajes se insertarán aquí dinámicamente -->
+        </div>
+
+        <!-- Input Box -->
+        <div class="p-4 bg-slate-900 border-t border-slate-800">
+            <form onsubmit="handleSendMessage(event)" class="max-w-4xl mx-auto flex gap-3">
+                <input type="text" id="message-input" disabled placeholder="Escribe un mensaje seguro..." class="flex-1 bg-slate-800 text-white placeholder-slate-400 px-4 py-3 rounded-xl border border-slate-700 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                <button type="submit" id="send-button" disabled class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-medium transition-colors shadow-lg shadow-indigo-600/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                    <span>Enviar</span>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+                </button>
+            </form>
+        </div>
+    </main>
+
+    <script>
+        // --- UTILIDADES ---
+        
+        // Mostrar notificaciones Toast personalizadas
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const colors = {
+                info: 'bg-slate-800 border-slate-600 text-white',
+                success: 'bg-emerald-900/90 border-emerald-600 text-emerald-100',
+                error: 'bg-red-900/90 border-red-600 text-red-100'
+            };
+            
+            toast.className = `toast px-4 py-2 rounded-lg border shadow-lg text-sm font-medium ${colors[type]}`;
+            toast.textContent = message;
+            container.appendChild(toast);
+            
+            // Forzar reflow para la transición
+            toast.offsetHeight;
+            toast.classList.add('show');
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // Generar un hash (ID aleatorio) para la sala
+        function generateRandomHash() {
+            const array = new Uint8Array(8);
+            window.crypto.getRandomValues(array);
+            return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+
+        // --- SISTEMA DE ENCRIPTACIÓN (Web Crypto API) ---
+        // Usamos el ID de la sala como "contraseña" para derivar una clave AES-GCM
+        
+        const SALT = "trystero-p2p-chat-salt-2023"; // Sal constante para la derivación
+        let currentEncryptionKey = null;
+
+        async function deriveKey(password) {
+            const enc = new TextEncoder();
+            const keyMaterial = await crypto.subtle.importKey(
+                "raw",
+                enc.encode(password),
+                "PBKDF2",
+                false,
+                ["deriveBits", "deriveKey"]
+            );
+            return crypto.subtle.deriveKey(
+                {
+                    name: "PBKDF2",
+                    salt: enc.encode(SALT),
+                    iterations: 100000,
+                    hash: "SHA-256"
+                },
+                keyMaterial,
+                { name: "AES-GCM", length: 256 },
+                true,
+                ["encrypt", "decrypt"]
+            );
+        }
+
+        async function encryptMessage(text, key) {
+            const enc = new TextEncoder();
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+            const ciphertext = await crypto.subtle.encrypt(
+                { name: "AES-GCM", iv: iv },
+                key,
+                enc.encode(text)
+            );
+            
+            // Convertimos a Array estándar porque Trystero serializa a JSON por debajo
+            return {
+                iv: Array.from(iv),
+                ciphertext: Array.from(new Uint8Array(ciphertext))
+            };
+        }
+
+        async function decryptMessage(encryptedObj, key) {
+            const dec = new TextDecoder();
+            const decrypted = await crypto.subtle.decrypt(
+                { name: "AES-GCM", iv: new Uint8Array(encryptedObj.iv) },
+                key,
+                new Uint8Array(encryptedObj.ciphertext)
+            );
+            return dec.decode(decrypted);
+        }
+
+        // --- LÓGICA DE LA APP / TRYSTERO ---
+        
+        const APP_ID = 'secure-p2p-chat-v1';
+        let currentRoom = null;
+        let connectedPeers = 0;
+        let sendMessageAction = null;
+
+        // Inicializar al cargar
+        let myHash = generateRandomHash();
+        document.getElementById('my-hash').value = myHash;
+        
+        // Iniciamos conectándonos a nuestro propio hash por defecto
+        joinChatRoom(myHash);
+
+        // Función para unirse a una sala P2P
+        async function joinChatRoom(roomId) {
+            // Limpiar sala anterior si existe
+            if (currentRoom) {
+                currentRoom.leave();
+            }
+
+            // Derivar clave de encriptación basada en el hash de la sala
+            try {
+                currentEncryptionKey = await deriveKey(roomId);
+            } catch (err) {
+                console.error("Error derivando clave:", err);
+                showToast("Error crítico de criptografía", "error");
+                return;
+            }
+
+            document.getElementById('current-room-display').textContent = `#${roomId}`;
+            document.getElementById('messages-container').innerHTML = ''; // Limpiar chat
+
+            // Unirse vía Trystero
+            // Utilizamos el entorno de ventana global que proporciona el script min.js
+            currentRoom = trystero.joinRoom({ appId: APP_ID }, roomId);
+            connectedPeers = 0;
+            updateConnectionState();
+
+            // Configurar Acción de envío de mensajes
+            const [sendMsg, getMsg] = currentRoom.makeAction('secure-message');
+            
+            sendMessageAction = async (text) => {
+                if (!currentEncryptionKey) return;
+                try {
+                    const encryptedPayload = await encryptMessage(text, currentEncryptionKey);
+                    sendMsg(encryptedPayload); // Enviar a todos los peers
+                    appendMessage(text, 'me'); // Mostrar localmente
+                } catch (e) {
+                    console.error("Error al encriptar", e);
+                    showToast("No se pudo encriptar el mensaje", "error");
+                }
+            };
+
+            // Escuchar mensajes entrantes
+            getMsg(async (encryptedPayload, peerId) => {
+                if (!currentEncryptionKey) return;
+                try {
+                    const decryptedText = await decryptMessage(encryptedPayload, currentEncryptionKey);
+                    appendMessage(decryptedText, 'peer', peerId);
+                } catch (e) {
+                    console.error("Error al desencriptar", e);
+                    showToast("Mensaje corrupto recibido", "error");
+                }
+            });
+
+            // Eventos de conexión de Peers
+            currentRoom.onPeerJoin(peerId => {
+                connectedPeers++;
+                updateConnectionState();
+                showToast(`Peer conectado! (${peerId.substring(0,5)}...)`, "success");
+            });
+
+            currentRoom.onPeerLeave(peerId => {
+                connectedPeers--;
+                if(connectedPeers < 0) connectedPeers = 0;
+                updateConnectionState();
+                showToast(`Peer desconectado`, "info");
+            });
+        }
+
+        // --- MANEJO DE INTERFAZ ---
+
+        function copyMyHash() {
+            const input = document.getElementById('my-hash');
+            input.select();
+            document.execCommand('copy');
+            showToast("Hash copiado al portapapeles", "success");
+            window.getSelection().removeAllRanges();
+        }
+
+        function connectToPartner() {
+            const partnerHash = document.getElementById('partner-hash').value.trim();
+            if (!partnerHash) {
+                showToast("Ingresa un Hash válido", "error");
+                return;
+            }
+            if (partnerHash === myHash) {
+                showToast("Ya estás en este Hash", "info");
+                return;
+            }
+            
+            showToast(`Conectando al Hash ${partnerHash}...`);
+            joinChatRoom(partnerHash);
+            document.getElementById('partner-hash').value = '';
+        }
+
+        function updateConnectionState() {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+            const input = document.getElementById('message-input');
+            const btn = document.getElementById('send-button');
+            const overlay = document.getElementById('chat-overlay');
+
+            if (connectedPeers > 0) {
+                dot.className = 'w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]';
+                text.textContent = `${connectedPeers} Conexión(es) E2EE Establecida(s)`;
+                text.className = 'text-sm font-medium text-green-400';
+                
+                input.disabled = false;
+                btn.disabled = false;
+                overlay.style.opacity = '0';
+                setTimeout(() => overlay.style.display = 'none', 300);
+            } else {
+                dot.className = 'w-3 h-3 rounded-full bg-yellow-500 animate-pulse';
+                text.textContent = 'Esperando conexión de peers...';
+                text.className = 'text-sm font-medium text-yellow-400';
+                
+                input.disabled = true;
+                btn.disabled = true;
+                overlay.style.display = 'flex';
+                // Trigger reflow
+                overlay.offsetHeight;
+                overlay.style.opacity = '1';
+            }
+        }
+
+        function handleSendMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById('message-input');
+            const text = input.value.trim();
+            
+            if (text && sendMessageAction) {
+                sendMessageAction(text);
+                input.value = '';
+            }
+        }
+
+        function appendMessage(text, sender, peerId = null) {
+            const container = document.getElementById('messages-container');
+            const wrapper = document.createElement('div');
+            
+            const isMe = sender === 'me';
+            wrapper.className = `flex w-full message-enter ${isMe ? 'justify-end' : 'justify-start'}`;
+            
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const senderName = isMe ? 'Tú' : `Peer ${peerId ? peerId.substring(0,4) : ''}`;
+            const bgClass = isMe ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-slate-800 text-slate-100 rounded-bl-none border border-slate-700';
+            
+            wrapper.innerHTML = `
+                <div class="max-w-[75%] md:max-w-[60%] flex flex-col shadow-sm">
+                    <span class="text-[10px] text-slate-400 mb-1 ${isMe ? 'text-right' : 'text-left'} px-1">${senderName}</span>
+                    <div class="${bgClass} px-4 py-2.5 rounded-2xl">
+                        <p class="text-sm leading-relaxed break-words">${escapeHTML(text)}</p>
+                    </div>
+                    <span class="text-[10px] text-slate-500 mt-1 ${isMe ? 'text-right' : 'text-left'} px-1">${timeStr}</span>
+                </div>
+            `;
+            
+            container.appendChild(wrapper);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // Prevenir XSS en mensajes
+        function escapeHTML(str) {
+            return str.replace(/[&<>'"]/g, 
+                tag => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    "'": '&#39;',
+                    '"': '&quot;'
+                }[tag] || tag)
+            );
+        }
+
+    </script>
+</body>
+</html>
