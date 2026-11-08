@@ -1,6 +1,6 @@
 # P2P SecureChat
 
-Chat cifrado de extremo a extremo que funciona **directamente entre navegadores** (WebRTC), sin servidor propio, sin cuentas y sin historial.
+Chat cifrado de extremo a extremo que funciona **directamente entre navegadores** (WebRTC), sin servidor propio y sin cuentas.
 
 ## Uso
 
