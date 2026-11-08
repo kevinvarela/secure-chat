@@ -130,12 +130,12 @@ async function leaveSession({ silent = false } = {}) {
   session = null;
   if (!s) return;
   s.peers.clear();
+  if (!silent) ui.showStart(); // la interfaz responde al instante; la desconexión sigue en segundo plano
   try {
     await s.room?.leave();
   } catch (err) {
     console.warn('Error al salir', err);
   }
-  if (!silent) ui.showStart();
 }
 
 // ---------------------------------------------------------------------------
@@ -256,10 +256,34 @@ async function sendMessage(text) {
 // Interfaz
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Navegación en móvil: vista "panel" (código, participantes) <-> vista "chat".
+// La vista de chat añade una entrada al historial para que el botón "atrás"
+// del teléfono vuelva al panel en vez de salir de la página.
+// ---------------------------------------------------------------------------
+
+function openChat() {
+  if (ui.getView() === 'chat') return;
+  if (ui.isMobile() && history.state?.view !== 'chat') history.pushState({ view: 'chat' }, '');
+  ui.setView('chat');
+}
+
+function openPanel() {
+  if (history.state?.view === 'chat') history.back(); // popstate cambia la vista
+  else ui.setView('panel');
+}
+
+window.addEventListener('popstate', () => {
+  if (session && ui.getView() === 'chat') ui.setView('panel');
+});
+
 function refreshPeers() {
   const s = session;
   if (!s) return;
   const joined = [...s.peers.values()].filter(p => p.joined);
+  // Al llegar el primer participante, el chat pasa a pantalla completa.
+  if (joined.length > 0 && !s.hadPeers) openChat();
+  s.hadPeers = joined.length > 0;
   ui.renderPeers(joined, peerId => {
     const peer = s.peers.get(peerId);
     if (!peer) return;
@@ -295,8 +319,12 @@ el.btnCopy.addEventListener('click', async () => {
 
 el.btnLeave.addEventListener('click', () => {
   sessionCounter++; // cancela cualquier unión en curso
+  if (history.state?.view === 'chat') history.replaceState(null, '');
   leaveSession();
 });
+
+el.btnBack.addEventListener('click', openPanel);
+el.btnOpenChat.addEventListener('click', openChat);
 
 el.formSend.addEventListener('submit', e => {
   e.preventDefault();

@@ -80,10 +80,19 @@
                 </div>
                 <button id="btn-leave" class="btn btn-ghost" type="button">Salir</button>
             </div>
+
+            <!-- Solo en móvil: pasar a la vista de chat a pantalla completa -->
+            <button id="btn-open-chat" class="btn btn-primary btn-block mobile-only" type="button">
+                Ir al chat <span id="unread-badge" class="unread" hidden></span>
+            </button>
         </aside>
 
         <main class="chat">
             <header class="chat-header">
+                <button id="btn-back" class="btn btn-icon btn-back mobile-only" type="button"
+                        title="Volver a la sala" aria-label="Volver a la sala">
+                    <svg viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7"/></svg>
+                </button>
                 <h2>Sala <span id="room-label" class="mono accent"></span></h2>
                 <span id="e2ee-badge" class="badge badge-off">Sin conexión cifrada</span>
             </header>

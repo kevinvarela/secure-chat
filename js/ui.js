@@ -28,8 +28,39 @@ export const el = {
   formSend: $('form-send'),
   messageInput: $('message-input'),
   btnSend: $('btn-send'),
+  btnBack: $('btn-back'),
+  btnOpenChat: $('btn-open-chat'),
+  unreadBadge: $('unread-badge'),
   toasts: $('toast-container')
 };
+
+// ---------- vistas en móvil ----------
+
+const mobileQuery = window.matchMedia('(max-width: 767px)');
+export const isMobile = () => mobileQuery.matches;
+
+let unread = 0;
+
+export function getView() {
+  return el.screenChat.dataset.view;
+}
+
+export function setView(view) {
+  el.screenChat.dataset.view = view;
+  if (view === 'chat') {
+    unread = 0;
+    el.unreadBadge.hidden = true;
+    el.messages.scrollTop = el.messages.scrollHeight;
+    if (isMobile() && !el.messageInput.disabled) el.messageInput.focus({ preventScroll: true });
+  }
+}
+
+function countUnread() {
+  if (!isMobile() || getView() === 'chat') return;
+  unread++;
+  el.unreadBadge.textContent = unread > 99 ? '99+' : String(unread);
+  el.unreadBadge.hidden = false;
+}
 
 const h = (tag, className, text) => {
   const node = document.createElement(tag);
@@ -73,6 +104,7 @@ export function showChat({ role, code, roomId }) {
   el.messages.replaceChildren();
   renderPeers([]);
   setConnection({ state: 'waiting', role });
+  setView('panel');
 }
 
 export function setBusy(busy) {
@@ -152,6 +184,7 @@ export function appendMessage({ text, from, mine }) {
   inner.appendChild(meta);
   wrap.appendChild(inner);
   pushMessage(wrap);
+  if (!mine) countUnread();
   return {
     markFailed(reason) {
       wrap.classList.add('msg-failed');
