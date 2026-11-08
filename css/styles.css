@@ -440,3 +440,14 @@ svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-
   color: var(--accent-text); font-weight: 600;
   pointer-events: none;
 }
+
+/* Botón Salir: rojo para distinguirlo del resto */
+.btn-exit {
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+  color: #fca5a5;
+  border-color: color-mix(in srgb, var(--err) 55%, transparent);
+  padding: .5rem .9rem;
+}
+.btn-exit svg { width: 1.05rem; height: 1.05rem; }
+.btn-exit:hover { background: var(--err); border-color: var(--err); color: #fff; }
+.btn-exit:focus-visible { outline-color: var(--err); }
