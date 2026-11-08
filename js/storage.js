@@ -82,13 +82,46 @@ export function deleteChat(id) {
 const isEntry = m =>
   m && typeof m.text === 'string' && typeof m.ts === 'number' && typeof m.mine === 'boolean';
 
-export function loadHistory(id) {
+const readHistory = id => {
   const list = read(HISTORY_PREFIX + id, []);
   return Array.isArray(list) ? list.filter(isEntry) : [];
+};
+
+// Limpieza de duplicados de versiones anteriores (sin id), que aparecían al tener
+// el mismo chat abierto en varias pestañas del mismo navegador: la pestaña que
+// enviaba y la que recibía guardaban la misma entrada en el mismo localStorage.
+const LEGACY_FILE_WINDOW_MS = 2 * 60 * 1000;
+const LEGACY_TEXT_WINDOW_MS = 10 * 1000;
+function dropLegacyDuplicates(list) {
+  const kept = [];
+  for (const m of list) {
+    const dup =
+      !m.id &&
+      kept.some(k => {
+        if (k.id) return false;
+        const dt = Math.abs(k.ts - m.ts);
+        if (m.file && k.file) {
+          return k.file.name === m.file.name && k.file.size === m.file.size && dt < LEGACY_FILE_WINDOW_MS;
+        }
+        return !m.file && !k.file && k.text === m.text && k.mine !== m.mine && dt < LEGACY_TEXT_WINDOW_MS;
+      });
+    if (!dup) kept.push(m);
+  }
+  return kept;
 }
 
+export function loadHistory(id) {
+  const list = readHistory(id);
+  const clean = dropLegacyDuplicates(list);
+  if (clean.length !== list.length) write(HISTORY_PREFIX + id, clean);
+  return clean;
+}
+
+// Guarda una entrada. Si ya existe otra con el mismo id (p. ej. la guardó otra
+// pestaña de este navegador que participa en el mismo chat), no se duplica.
 export function appendHistory(id, entry) {
-  const list = loadHistory(id);
+  const list = readHistory(id);
+  if (entry.id && list.some(m => m.id === entry.id)) return false;
   list.push(entry);
   write(HISTORY_PREFIX + id, list.slice(-MAX_HISTORY));
   const chats = listChats();
@@ -97,4 +130,5 @@ export function appendHistory(id, entry) {
     chat.lastMessage = entry.ts;
     saveIndex(chats);
   }
+  return true;
 }

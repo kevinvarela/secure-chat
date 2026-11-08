@@ -274,7 +274,8 @@ async function receiveMessage(s, peer, data) {
   }
   if (body?.k === 'text' && typeof body.text === 'string') {
     if (body.text.length > MAX_TEXT_CHARS) return;
-    const entry = { text: body.text, from: peer.label, mine: false, ts: Date.now() };
+    const id = typeof body.id === 'string' && ENTRY_ID_RE.test(body.id) ? body.id : newEntryId();
+    const entry = { id, text: body.text, from: peer.label, mine: false, ts: Date.now() };
     store.appendHistory(s.chat.id, entry);
     ui.appendMessage(entry);
   } else if (body?.k === 'file') {
@@ -297,6 +298,11 @@ function sendSecure(s, peer, body) {
 
 const connectedPeers = s => [...s.peers.values()].filter(p => p.joined);
 
+// Identificador aleatorio de 128 bits para cada mensaje/archivo. Viaja dentro del
+// mensaje cifrado y evita duplicar entradas en el historial compartido por pestañas.
+const newEntryId = () => toHex(newFileId());
+const ENTRY_ID_RE = /^[0-9a-f]{32}$/;
+
 async function sendMessage(text) {
   const s = session;
   if (!s?.action) return;
@@ -306,10 +312,11 @@ async function sendMessage(text) {
     return;
   }
 
-  const entry = { text, mine: true, ts: Date.now() };
+  const id = newEntryId();
+  const entry = { id, text, mine: true, ts: Date.now() };
   store.appendHistory(s.chat.id, entry);
   const bubble = ui.appendMessage(entry);
-  const results = await Promise.allSettled(targets.map(peer => sendSecure(s, peer, { k: 'text', text })));
+  const results = await Promise.allSettled(targets.map(peer => sendSecure(s, peer, { k: 'text', id, text })));
   const failed = results.filter(r => r.status === 'rejected');
   if (failed.length) {
     failed.forEach(r => console.warn('Fallo al enviar', r.reason));
@@ -371,6 +378,7 @@ async function sendFile(s, file, name, card, entry) {
   const fileId = newFileId();
   const total = files.chunkCount(bytes.length);
   const offer = { k: 'file', id: toHex(fileId), name, size: bytes.length, chunks: total, hash };
+  entry.id = offer.id;
 
   const sent = new Map(targets.map(p => [p.id, 0]));
   const updateProgress = () => {
@@ -416,7 +424,7 @@ function acceptOffer(s, peer, body) {
     return;
   }
 
-  const entry = fileEntry(offer.name, offer.size, false, peer.label);
+  const entry = { ...fileEntry(offer.name, offer.size, false, peer.label), id: offer.id };
   const transfer = {
     ...offer,
     parts: new Array(offer.chunks),
