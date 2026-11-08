@@ -326,8 +326,21 @@ el.btnLeave.addEventListener('click', () => {
 el.btnBack.addEventListener('click', openPanel);
 el.btnOpenChat.addEventListener('click', openChat);
 
+// En móvil, tocar "Enviar" movería el foco al botón y cerraría el teclado.
+// Evitamos que el botón tome el foco: si el teclado estaba abierto, sigue abierto
+// hasta que el usuario lo cierre.
+let keepKeyboard = false;
+el.btnSend.addEventListener('pointerdown', e => {
+  keepKeyboard = document.activeElement === el.messageInput;
+  e.preventDefault();
+});
+
 el.formSend.addEventListener('submit', e => {
   e.preventDefault();
+  if (keepKeyboard && document.activeElement !== el.messageInput) {
+    el.messageInput.focus({ preventScroll: true });
+  }
+  keepKeyboard = false;
   const text = el.messageInput.value.trim();
   if (!text) return;
   if (text.length > MAX_TEXT_CHARS) {
