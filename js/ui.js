@@ -156,7 +156,7 @@ export function setConnection({ state, role, count = 0, error }) {
     el.overlayText.textContent = error || '';
   } else if (role === 'host') {
     el.overlayTitle.textContent = 'Esperando a la otra persona…';
-    el.overlayText.textContent = 'Comparte el código de la sala. En cuanto alguien entre, se establecerá una clave cifrada solo para vosotros.';
+    el.overlayText.textContent = 'Comparte el código de la sala. En cuanto alguien entre, se establecerá una clave cifrada solo para ustedes.';
   } else {
     el.overlayTitle.textContent = 'Conectando con el host…';
     el.overlayText.textContent = 'El host debe tener la sala abierta. Puede tardar unos segundos.';

@@ -224,7 +224,7 @@ async function peerHandshake(s, peerId, send, receive, isInitiator) {
 
   const previous = s.peers.get(peerId);
   if (previous && previous.safetyNumber !== keys.safetyNumber) {
-    ui.appendSystem(`⚠ La clave del participante ${previous.label} ha cambiado. Volved a comparar el número de seguridad.`);
+    ui.appendSystem(`⚠ La clave del participante ${previous.label} ha cambiado. Vuelvan a comparar el número de seguridad.`);
   }
 
   s.peers.set(peerId, {
@@ -598,7 +598,7 @@ el.joinCode.addEventListener('input', () => el.joinCode.classList.remove('invali
 el.btnCopy.addEventListener('click', async () => {
   if (!session) return;
   const ok = await ui.copyText(session.code, el.hostCode);
-  ui.toast(ok ? 'Código copiado al portapapeles' : 'Pulsa Ctrl+C para copiar el código', ok ? 'success' : 'info');
+  ui.toast(ok ? 'Código copiado al portapapeles' : 'Presiona Ctrl+C para copiar el código', ok ? 'success' : 'info');
 });
 
 el.btnLeave.addEventListener('click', () => {
