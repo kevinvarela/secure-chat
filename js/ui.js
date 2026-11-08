@@ -32,6 +32,9 @@ export const el = {
   messageInput: $('message-input'),
   btnSend: $('btn-send'),
   btnBack: $('btn-back'),
+  btnAttach: $('btn-attach'),
+  fileInput: $('file-input'),
+  dropZone: $('drop-zone'),
   btnOpenChat: $('btn-open-chat'),
   unreadBadge: $('unread-badge'),
   toasts: $('toast-container')
@@ -87,6 +90,7 @@ export function toast(message, type = 'info') {
 // ---------- pantallas ----------
 
 export function showStart() {
+  revokeObjectUrls();
   el.screenChat.hidden = true;
   el.screenStart.hidden = false;
   el.messages.replaceChildren();
@@ -107,8 +111,12 @@ export function showChat({ role, code, name, history = [] }) {
   el.chatName.textContent = name;
   el.roomTitle.textContent = name;
   el.hostCode.value = code;
+  revokeObjectUrls();
   el.messages.replaceChildren();
-  for (const m of history) appendMessage({ ...m, restored: true });
+  for (const m of history) {
+    if (m.file) appendFile({ ...m, ...m.file, restored: true });
+    else appendMessage({ ...m, restored: true });
+  }
   hasHistory = history.length > 0;
   renderPeers([]);
   setConnection({ state: 'waiting', role });
@@ -139,6 +147,7 @@ export function setConnection({ state, role, count = 0, error }) {
 
   el.messageInput.disabled = !ready;
   el.btnSend.disabled = !ready;
+  el.btnAttach.disabled = !ready;
 
   el.overlay.classList.toggle('is-hidden', ready || (hasHistory && state !== 'error'));
   el.overlay.classList.toggle('is-error', state === 'error');
@@ -204,6 +213,95 @@ export function appendMessage({ text, from, mine, ts = Date.now(), restored = fa
     markFailed(reason) {
       wrap.classList.add('msg-failed');
       meta.textContent = `${meta.textContent} · ${reason}`;
+    }
+  };
+}
+
+// ---------- archivos ----------
+
+// URLs blob: creadas en esta sesión; se liberan al cambiar de chat.
+const objectUrls = new Set();
+function revokeObjectUrls() {
+  for (const url of objectUrls) URL.revokeObjectURL(url);
+  objectUrls.clear();
+}
+
+const extLabel = name => {
+  const i = name.lastIndexOf('.');
+  return i > 0 ? name.slice(i + 1, i + 5) : 'file';
+};
+
+// Tarjeta de archivo. Devuelve un controlador para actualizar el progreso y el resultado.
+export function appendFile({ name, size, sizeLabel, mine, from, ts = Date.now(), restored = false }) {
+  const wrap = h('div', `msg ${mine ? 'msg-me' : 'msg-peer'}`);
+  if (restored) wrap.classList.add('msg-restored');
+  const inner = h('div', 'msg-inner');
+  inner.appendChild(h('span', 'msg-meta', mine ? 'Tú' : `Participante ${from}`));
+
+  const card = h('div', 'msg-bubble file-card');
+  const row = h('div', 'file-row');
+  const info = h('div', 'file-info');
+  const nameEl = h('span', 'file-name', name);
+  nameEl.title = name;
+  info.append(nameEl, h('span', 'file-size', sizeLabel));
+  row.append(h('span', 'file-icon', extLabel(name)), info);
+  card.appendChild(row);
+
+  const bar = h('div', 'file-progress');
+  const fill = h('span');
+  bar.appendChild(fill);
+  const status = h('span', 'file-status');
+
+  if (restored) {
+    status.textContent = 'Archivo no disponible: los archivos no se guardan en el historial.';
+    card.appendChild(status);
+  } else {
+    card.append(bar, status);
+    status.textContent = mine ? 'Enviando…' : 'Recibiendo…';
+  }
+
+  inner.appendChild(card);
+  inner.appendChild(h('span', 'msg-meta', formatTime(ts)));
+  wrap.appendChild(inner);
+  pushMessage(wrap);
+  if (!mine && !restored) countUnread();
+
+  return {
+    setProgress(fraction, label) {
+      fill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+      if (label) status.textContent = label;
+    },
+    // blob: contenido final; imageType solo si se verificó por magic bytes
+    complete({ blob, imageType, risky, label }) {
+      bar.remove();
+      const url = URL.createObjectURL(blob);
+      objectUrls.add(url);
+      if (imageType) {
+        const img = h('img', 'file-thumb');
+        img.alt = name;
+        img.decoding = 'async';
+        img.src = url;
+        img.addEventListener('load', () => {
+          const box = el.messages;
+          if (box.scrollHeight - box.scrollTop - box.clientHeight < 300) box.scrollTop = box.scrollHeight;
+        });
+        card.insertBefore(img, row);
+      }
+      if (risky) {
+        card.appendChild(h('span', 'file-warn', '⚠ Tipo de archivo que puede ejecutar código. Ábrelo solo si confías plenamente en quien lo envía.'));
+      }
+      const a = h('a', 'file-download', 'Descargar');
+      a.href = url;
+      a.download = name; // fuerza la descarga: nunca se renderiza dentro de la app
+      a.rel = 'noopener';
+      card.appendChild(a);
+      status.textContent = label || '';
+      if (!label) status.remove();
+    },
+    fail(reason) {
+      wrap.classList.add('file-failed');
+      bar.remove();
+      status.textContent = reason;
     }
   };
 }

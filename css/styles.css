@@ -385,3 +385,58 @@ svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 .msg-restored { animation: none; }
+
+/* ===== Archivos ===== */
+.btn-attach { background: var(--surface); color: var(--text-2); border-color: var(--border); }
+.btn-attach:hover:not(:disabled) { background: var(--border); }
+
+.file-card {
+  display: flex; flex-direction: column; gap: .45rem;
+  min-width: min(15rem, 70vw);
+  white-space: normal;
+}
+.file-row { display: flex; align-items: center; gap: .6rem; }
+.file-icon {
+  width: 2.2rem; height: 2.2rem; flex-shrink: 0;
+  border-radius: 8px;
+  display: grid; place-items: center;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+  font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .02em;
+}
+.file-info { min-width: 0; display: flex; flex-direction: column; }
+.file-name { font-weight: 600; font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-size { font-size: .72rem; opacity: .75; }
+.file-thumb {
+  display: block;
+  max-width: 100%; max-height: 14rem;
+  border-radius: 10px;
+  object-fit: contain;
+  background: rgba(0, 0, 0, .25);
+}
+.file-progress { height: 4px; border-radius: 4px; background: color-mix(in srgb, currentColor 20%, transparent); overflow: hidden; }
+.file-progress > span { display: block; height: 100%; width: 0; background: currentColor; transition: width .2s; }
+.file-status { font-size: .72rem; opacity: .8; }
+.file-warn { font-size: .72rem; color: var(--warn-text); }
+.msg-me .file-warn { color: #fef9c3; }
+.file-download {
+  align-self: flex-start;
+  font-size: .8rem; font-weight: 600;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: 8px;
+  padding: .25rem .65rem;
+}
+.file-download:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+.file-failed .file-status { color: #fca5a5; }
+
+.drop-zone {
+  position: absolute; inset: 3.5rem 0 0 0; z-index: 6;
+  display: grid; place-items: center;
+  margin: .75rem;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-deep) 85%, transparent);
+  color: var(--accent-text); font-weight: 600;
+  pointer-events: none;
+}

@@ -20,8 +20,8 @@ const dec = new TextDecoder();
 const PROTOCOL = 'secure-chat/v2';
 export const SECRET_BYTES = 16; // 128 bits
 export const MAX_TEXT_CHARS = 2000;
-// Un carácter UTF-16 ocupa como mucho 3 bytes en UTF-8, más 16 bytes de etiqueta GCM.
-export const MAX_CIPHERTEXT_BYTES = MAX_TEXT_CHARS * 3 + 16;
+// Tope de un mensaje cifrado (texto o anuncio de archivo, serializado en JSON).
+export const MAX_CIPHERTEXT_BYTES = 16 * 1024;
 const IV_BYTES = 12;
 
 // ---------- utilidades de codificación ----------
@@ -205,3 +205,59 @@ export async function openMessage(key, kind, envelope) {
   );
   return dec.decode(plain);
 }
+
+// ---------- trozos de archivo (binario) ----------
+//
+// Formato del marco: [id 16 B][índice u32 BE][iv 12 B][ciphertext + tag 16 B]
+// El AAD liga cada trozo a su archivo, a su posición y al número total de trozos:
+// no se pueden reordenar, mezclar entre archivos ni truncar sin que falle.
+
+export const FILE_ID_BYTES = 16;
+const FRAME_HEADER = FILE_ID_BYTES + 4 + IV_BYTES;
+
+const u32 = n => {
+  const b = new Uint8Array(4);
+  new DataView(b.buffer).setUint32(0, n);
+  return b;
+};
+
+const chunkAad = (fileId, index, total) => concat(enc.encode(`${PROTOCOL}/chunk/`), fileId, u32(index), u32(total));
+
+export const newFileId = () => globalThis.crypto.getRandomValues(new Uint8Array(FILE_ID_BYTES));
+
+export async function sealChunk(key, fileId, index, total, data) {
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const ct = new Uint8Array(
+    await subtle.encrypt({ name: 'AES-GCM', iv, additionalData: chunkAad(fileId, index, total) }, key, data)
+  );
+  return concat(fileId, u32(index), iv, ct);
+}
+
+// Valida el marco recibido. Devuelve null si no tiene un formato posible.
+export function parseChunkFrame(data, maxPlainBytes) {
+  let bytes = null;
+  if (data instanceof Uint8Array) bytes = data;
+  else if (data instanceof ArrayBuffer) bytes = new Uint8Array(data);
+  if (!bytes || bytes.length < FRAME_HEADER + 17 || bytes.length > FRAME_HEADER + maxPlainBytes + 16) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const fileId = bytes.slice(0, FILE_ID_BYTES);
+  return {
+    fileId,
+    fileIdHex: toHex(fileId),
+    index: view.getUint32(FILE_ID_BYTES),
+    iv: bytes.slice(FILE_ID_BYTES + 4, FRAME_HEADER),
+    ct: bytes.slice(FRAME_HEADER)
+  };
+}
+
+export async function openChunk(key, frame, total) {
+  return new Uint8Array(
+    await subtle.decrypt(
+      { name: 'AES-GCM', iv: frame.iv, additionalData: chunkAad(frame.fileId, frame.index, total) },
+      key,
+      frame.ct
+    )
+  );
+}
+
+export const sha256Hex = async data => toHex(new Uint8Array(await subtle.digest('SHA-256', data)));

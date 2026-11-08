@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- Solo se cargan archivos propios; las conexiones salientes son los relays Nostr (wss) para la señalización. -->
     <meta http-equiv="Content-Security-Policy"
-          content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src wss:; base-uri 'none'; form-action 'none'; object-src 'none'">
+          content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src wss:; base-uri 'none'; form-action 'none'; object-src 'none'">
     <meta name="referrer" content="no-referrer">
     <title>P2P SecureChat</title>
     <link rel="stylesheet" href="css/styles.css">
@@ -117,7 +117,14 @@
 
             <div id="messages" class="messages" aria-live="polite"></div>
 
+            <div id="drop-zone" class="drop-zone" hidden>Suelta el archivo para enviarlo cifrado</div>
+
             <form id="form-send" class="composer" autocomplete="off">
+                <button id="btn-attach" class="btn btn-icon btn-attach" type="button" disabled
+                        title="Enviar archivo (máx. 50 MB)" aria-label="Enviar archivo">
+                    <svg viewBox="0 0 24 24"><path d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/></svg>
+                </button>
+                <input id="file-input" type="file" multiple hidden>
                 <label for="message-input" class="sr-only">Mensaje</label>
                 <input id="message-input" class="input" type="text" maxlength="2000"
                        enterkeyhint="send" autocapitalize="sentences"
