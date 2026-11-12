@@ -1,4 +1,17 @@
 // Lógica principal: roles host / invitado sobre Trystero (WebRTC + señalización Nostr).
+
+// Anti-clickjacking: la CSP en <meta> no admite frame-ancestors, así que si la app
+// se carga dentro de un iframe de otra página, no se inicia.
+if (window.top !== window.self) {
+  document.body.replaceChildren(
+    Object.assign(document.createElement('p'), {
+      className: 'framed-block',
+      textContent: 'Por seguridad, P2P SecureChat no funciona dentro de otra página. Ábrelo directamente.'
+    })
+  );
+  throw new Error('Cargado dentro de un iframe: bloqueado');
+}
+
 import { joinRoom } from '../vendor/trystero.js';
 import {
   MAX_TEXT_CHARS,
@@ -78,6 +91,7 @@ async function startSession(role, secret) {
     action: null,
     chunkAction: null,
     incomingBytes: 0, // memoria reservada por recepciones en curso (todas las personas)
+    receivedBytes: 0, // total de archivos recibidos en esta sesión (siguen en memoria)
     fileQueue: Promise.resolve() // los archivos salientes se envían de uno en uno
   };
   session = s;
@@ -139,6 +153,10 @@ async function startSession(role, secret) {
     peer.joined = true;
     ui.toast(`Participante ${peer.label} conectado`, 'success');
     ui.appendSystem(`Participante ${peer.label} se unió. Número de seguridad: ${peer.safetyNumber}`);
+    // Dos participantes con la misma etiqueta = posible intento de suplantación.
+    if (connectedPeers(s).some(p => p !== peer && p.label === peer.label)) {
+      ui.appendSystem(`⚠ Hay dos participantes con la etiqueta ${peer.label}. Uno podría estar suplantando al otro: verifiquen los números de seguridad antes de confiar en sus mensajes.`);
+    }
     refreshPeers();
   };
 
@@ -146,7 +164,10 @@ async function startSession(role, secret) {
     if (s !== session) return;
     const peer = s.peers.get(peerId);
     s.peers.delete(peerId);
-    if (peer) abortIncoming(s, peer, 'Transferencia interrumpida: el participante se desconectó.');
+    if (peer) {
+      abortIncoming(s, peer, 'Transferencia interrumpida: el participante se desconectó.');
+      for (const answer of peer.answers.values()) answer(false);
+    }
     if (peer?.joined) {
       ui.toast(`Participante ${peer.label} desconectado`);
       ui.appendSystem(`Participante ${peer.label} salió de la sala.`);
@@ -162,7 +183,10 @@ async function leaveSession({ silent = false } = {}) {
   const s = session;
   session = null;
   if (!s) return;
-  for (const peer of s.peers.values()) abortIncoming(s, peer);
+  for (const peer of s.peers.values()) {
+    abortIncoming(s, peer);
+    for (const answer of peer.answers.values()) answer(false);
+  }
   s.peers.clear();
   if (!silent) {
     ui.showStart(); // la interfaz responde al instante; la desconexión sigue en segundo plano
@@ -236,7 +260,9 @@ async function peerHandshake(s, peerId, send, receive, isInitiator) {
     joined: previous?.joined ?? false,
     queue: Promise.resolve(), // procesado en serie de lo recibido
     sendChain: Promise.resolve(), // envíos cifrados en orden (el contador debe llegar creciente)
-    incoming: new Map() // fileId -> transferencia en curso
+    incoming: new Map(), // fileId -> transferencia en curso
+    pendingOffers: 0, // archivos grandes esperando que el usuario acepte
+    answers: new Map() // fileId -> resolver(aceptado) de mis envíos que esperan respuesta
   });
 }
 
@@ -275,11 +301,13 @@ async function receiveMessage(s, peer, data) {
   if (body?.k === 'text' && typeof body.text === 'string') {
     if (body.text.length > MAX_TEXT_CHARS) return;
     const id = typeof body.id === 'string' && ENTRY_ID_RE.test(body.id) ? body.id : newEntryId();
-    const entry = { id, text: body.text, from: peer.label, mine: false, ts: Date.now() };
+    const entry = { id, text: body.text, from: peer.label, mine: false, verified: peer.verified, ts: Date.now() };
     store.appendHistory(s.chat.id, entry);
     ui.appendMessage(entry);
   } else if (body?.k === 'file') {
     acceptOffer(s, peer, body);
+  } else if (body?.k === 'file-answer' && typeof body.id === 'string' && typeof body.ok === 'boolean') {
+    peer.answers.get(body.id)?.(body.ok);
   } else {
     console.warn('Tipo de mensaje desconocido descartado');
   }
@@ -388,7 +416,12 @@ async function sendFile(s, file, name, card, entry) {
 
   const results = await Promise.allSettled(
     targets.map(async peer => {
+      const answer = files.needsAcceptance(bytes.length) ? waitForAnswer(peer, offer.id) : null;
       await sendSecure(s, peer, offer);
+      if (answer) {
+        card.setProgress(0, 'Esperando a que acepten el archivo…');
+        if (!(await answer)) throw new Error('rechazado');
+      }
       for (let i = 0; i < total; i++) {
         if (s !== session || s.peers.get(peer.id) !== peer) throw new Error('participante desconectado');
         const start = i * files.CHUNK_BYTES;
@@ -400,15 +433,35 @@ async function sendFile(s, file, name, card, entry) {
     })
   );
 
-  const failed = results.filter(r => r.status === 'rejected').length;
-  if (failed === targets.length) return card.fail('No se pudo enviar el archivo.');
+  const failed = results.filter(r => r.status === 'rejected');
+  const rejected = failed.filter(r => r.reason?.message === 'rechazado').length;
+  if (failed.length === targets.length) {
+    return card.fail(rejected === targets.length ? 'El destinatario rechazó el archivo.' : 'No se pudo enviar el archivo.');
+  }
   store.appendHistory(s.chat.id, entry);
-  const imageType = files.sniffImageType(bytes);
+  const imageType = files.previewableImageType(bytes.subarray(0, PREVIEW_HEAD_BYTES));
   card.complete({
     blob: file.slice(0, file.size, imageType || 'application/octet-stream'),
     imageType,
     risky: files.isRiskyName(name),
-    label: failed ? 'No llegó a todos los participantes.' : 'Enviado ✓'
+    label: failed.length ? 'No llegó a todos los participantes.' : 'Enviado ✓'
+  });
+}
+
+// Bytes iniciales que se miran para detectar el tipo y las dimensiones de una imagen
+// (en JPEG las dimensiones pueden venir tras metadatos EXIF largos).
+const PREVIEW_HEAD_BYTES = 256 * 1024;
+
+// Promesa que se resuelve con la respuesta (aceptar/rechazar) del receptor.
+function waitForAnswer(peer, id) {
+  return new Promise(resolve => {
+    const done = ok => {
+      clearTimeout(timer);
+      peer.answers.delete(id);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), files.ACCEPT_TIMEOUT_MS + 10000);
+    peer.answers.set(id, done);
   });
 }
 
@@ -419,22 +472,60 @@ function acceptOffer(s, peer, body) {
     return;
   }
   if (peer.incoming.has(offer.id)) return; // id repetido: se ignora
-  if (peer.incoming.size >= files.MAX_INCOMING_PER_PEER || s.incomingBytes + offer.size > files.MAX_INCOMING_TOTAL_BYTES) {
-    ui.appendSystem(`Se rechazó "${offer.name}" de ${peer.label}: demasiadas transferencias simultáneas.`);
+  const big = files.needsAcceptance(offer.size);
+  const answer = ok => big && sendSecure(s, peer, { k: 'file-answer', id: offer.id, ok }).catch(() => {});
+
+  // Límites anti-abuso: memoria en vuelo, total recibido en la sesión y ofertas pendientes.
+  const overLimits = () =>
+    peer.incoming.size >= files.MAX_INCOMING_PER_PEER ||
+    s.incomingBytes + offer.size > files.MAX_INCOMING_TOTAL_BYTES ||
+    s.receivedBytes + s.incomingBytes + offer.size > files.MAX_SESSION_RECEIVED_BYTES;
+  if (overLimits() || (big && peer.pendingOffers >= files.MAX_PENDING_OFFERS_PER_PEER)) {
+    ui.appendSystem(
+      s.receivedBytes + offer.size > files.MAX_SESSION_RECEIVED_BYTES
+        ? `Se rechazó "${offer.name}" de ${peer.label}: se alcanzó el límite de ${files.formatSize(files.MAX_SESSION_RECEIVED_BYTES)} recibidos en esta sesión. Sal y vuelve a entrar al chat para liberar memoria.`
+        : `Se rechazó "${offer.name}" de ${peer.label}: demasiadas transferencias simultáneas.`
+    );
+    answer(false);
     return;
   }
 
-  const entry = { ...fileEntry(offer.name, offer.size, false, peer.label), id: offer.id };
-  const transfer = {
-    ...offer,
-    parts: new Array(offer.chunks),
-    received: 0,
-    entry,
-    card: ui.appendFile({ ...entry, ...entry.file }),
-    timer: null
+  const entry = { ...fileEntry(offer.name, offer.size, false, peer.label), id: offer.id, verified: peer.verified };
+  const card = ui.appendFile({ ...entry, ...entry.file });
+  if (!big) return startIncoming(s, peer, offer, entry, card);
+
+  // Archivo grande: no se recibe nada hasta que el usuario lo acepte.
+  peer.pendingOffers++;
+  let settled = false;
+  const settle = ok => {
+    if (settled) return;
+    settled = true;
+    peer.pendingOffers--;
+    clearTimeout(expire);
+    cancelAsk();
+    if (!ok || s !== session || s.peers.get(peer.id) !== peer) {
+      card.fail(ok ? 'El participante se desconectó.' : 'Rechazado.');
+      return answer(false);
+    }
+    if (overLimits()) {
+      card.fail('No hay memoria disponible para recibirlo ahora.');
+      return answer(false);
+    }
+    startIncoming(s, peer, offer, entry, card);
+    answer(true);
   };
+  const cancelAsk = card.ask(`¿Recibir este archivo de ${files.formatSize(offer.size)}?`, settle);
+  const expire = setTimeout(() => {
+    settle(false);
+    card.fail('Expiró sin respuesta.');
+  }, files.ACCEPT_TIMEOUT_MS);
+}
+
+function startIncoming(s, peer, offer, entry, card) {
+  const transfer = { ...offer, parts: new Array(offer.chunks), received: 0, entry, card, timer: null };
   s.incomingBytes += offer.size;
   peer.incoming.set(offer.id, transfer);
+  card.setProgress(0, 'Recibiendo…');
   armTimeout(s, peer, transfer);
 }
 
@@ -487,13 +578,15 @@ async function receiveChunk(s, peer, data) {
   if (transfer.received < transfer.chunks) return;
 
   // Completo: verificar el hash del archivo entero antes de mostrar nada.
-  const imageType = files.sniffImageType(transfer.parts[0]);
   const blob = new Blob(transfer.parts);
+  const head = new Uint8Array(await blob.slice(0, PREVIEW_HEAD_BYTES).arrayBuffer());
+  const imageType = files.previewableImageType(head);
   const ok = (await sha256Hex(await blob.arrayBuffer())) === transfer.hash;
   if (peer.incoming.get(transfer.id) !== transfer) return;
   if (!ok) return dropTransfer(s, peer, transfer, 'Archivo descartado: la huella SHA-256 no coincide.');
 
   dropTransfer(s, peer, transfer); // libera la reserva; la tarjeta se completa abajo
+  s.receivedBytes += transfer.size;
   store.appendHistory(s.chat.id, transfer.entry);
   transfer.card.complete({
     // slice() solo reetiqueta el tipo, sin copiar. Lo que no es imagen verificada se
@@ -678,7 +771,12 @@ window.addEventListener('pagehide', () => session?.room?.leave());
 
 // Permite enlaces de invitación con el código en el fragmento (#código):
 // el fragmento nunca se envía a ningún servidor.
-const fromHash = parseCode(decodeURIComponent(location.hash.slice(1)));
+let fromHash = null;
+try {
+  fromHash = parseCode(decodeURIComponent(location.hash.slice(1)));
+} catch {
+  /* fragmento mal formado: se ignora */
+}
 if (fromHash) {
   history.replaceState(null, '', location.pathname + location.search);
   el.joinCode.value = formatCode(fromHash);

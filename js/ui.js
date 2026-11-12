@@ -198,10 +198,15 @@ const formatTime = ts => {
     : `${d.toLocaleDateString([], { day: '2-digit', month: '2-digit' })} ${time}`;
 };
 
-export function appendMessage({ text, from, mine, ts = Date.now(), restored = false }) {
+const senderLabel = (mine, from, verified) =>
+  mine ? 'Tú' : `Participante ${from}${verified ? ' ✔' : ''}`;
+
+export function appendMessage({ text, from, mine, verified = false, ts = Date.now(), restored = false }) {
   const wrap = h('div', `msg ${mine ? 'msg-me' : 'msg-peer'}`);
   const inner = h('div', 'msg-inner');
-  inner.appendChild(h('span', 'msg-meta', mine ? 'Tú' : `Participante ${from}`));
+  const who = h('span', 'msg-meta', senderLabel(mine, from, verified));
+  if (verified) who.title = 'Participante verificado con el número de seguridad';
+  inner.appendChild(who);
   inner.appendChild(h('p', 'msg-bubble', text));
   const meta = h('span', 'msg-meta', formatTime(ts));
   inner.appendChild(meta);
@@ -232,16 +237,22 @@ const extLabel = name => {
 };
 
 // Tarjeta de archivo. Devuelve un controlador para actualizar el progreso y el resultado.
-export function appendFile({ name, size, sizeLabel, mine, from, ts = Date.now(), restored = false }) {
+export function appendFile({ name, size, sizeLabel, mine, from, verified = false, ts = Date.now(), restored = false }) {
   const wrap = h('div', `msg ${mine ? 'msg-me' : 'msg-peer'}`);
   if (restored) wrap.classList.add('msg-restored');
   const inner = h('div', 'msg-inner');
-  inner.appendChild(h('span', 'msg-meta', mine ? 'Tú' : `Participante ${from}`));
+  inner.appendChild(h('span', 'msg-meta', senderLabel(mine, from, verified)));
 
   const card = h('div', 'msg-bubble file-card');
   const row = h('div', 'file-row');
   const info = h('div', 'file-info');
-  const nameEl = h('span', 'file-name', name);
+  // Nombre con la extensión siempre visible: si es muy largo se recorta la base,
+  // nunca la extensión (evita ocultar un ".exe" al final de un nombre larguísimo).
+  const nameEl = h('span', 'file-name');
+  const dot = name.lastIndexOf('.');
+  const hasExt = dot > 0 && name.length - dot <= 17;
+  nameEl.append(h('span', 'file-name-base', hasExt ? name.slice(0, dot) : name));
+  if (hasExt) nameEl.append(h('span', 'file-name-ext', name.slice(dot)));
   nameEl.title = name;
   info.append(nameEl, h('span', 'file-size', sizeLabel));
   row.append(h('span', 'file-icon', extLabel(name)), info);
@@ -267,6 +278,25 @@ export function appendFile({ name, size, sizeLabel, mine, from, ts = Date.now(),
   if (!mine && !restored) countUnread();
 
   return {
+    // Pide al usuario aceptar o rechazar (archivos grandes). Llama a decide(true|false).
+    ask(question, decide) {
+      bar.remove();
+      status.textContent = question;
+      const row = h('div', 'file-actions');
+      const yes = h('button', 'btn btn-primary btn-small', 'Aceptar');
+      const no = h('button', 'btn btn-ghost btn-small', 'Rechazar');
+      yes.type = no.type = 'button';
+      const choose = ok => {
+        row.remove();
+        card.insertBefore(bar, status);
+        decide(ok);
+      };
+      yes.addEventListener('click', () => choose(true));
+      no.addEventListener('click', () => choose(false));
+      row.append(yes, no);
+      card.appendChild(row);
+      return () => row.isConnected && row.remove(); // cancelar la pregunta
+    },
     setProgress(fraction, label) {
       fill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
       if (label) status.textContent = label;

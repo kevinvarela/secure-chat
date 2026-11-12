@@ -14,7 +14,7 @@ Cada sala que creas o a la que te unes se guarda en **Tus chats**, en la pantall
 
 ### Archivos
 
-Para enviar archivos de hasta **50 MB** usa el botón 📎, arrástralos al chat o pégalos con Ctrl+V. Las imágenes PNG, JPEG, GIF y WebP se muestran con una pequeña vista previa. El resto aparece como una tarjeta con su nombre, tamaño y un botón **Descargar**. Los archivos no se guardan en el historial.
+Para enviar archivos de hasta **50 MB** usa el botón 📎, arrástralos al chat o pégalos con Ctrl+V. Los archivos de más de 10 MB solo se envían si quien los recibe presiona **Aceptar**. Las imágenes PNG, JPEG, GIF y WebP se muestran con una pequeña vista previa. El resto aparece como una tarjeta con su nombre, tamaño y un botón **Descargar**. Los archivos no se guardan en el historial.
 
 También se puede abrir `https://…/index.html#<código>` para precargar el código. El fragmento `#` nunca se envía a ningún servidor.
 
@@ -51,14 +51,17 @@ vendor/trystero.js    Trystero 0.26.0 empaquetado localmente (sin CDN)
   - El anuncio (nombre, tamaño, cantidad de fragmentos, SHA-256) va por el canal de mensajes, cifrado y con anti-replay.
   - El contenido viaja en fragmentos binarios de 64 KB, cada uno cifrado con AES-GCM y ligado por AAD a su archivo, su posición y el total. No se pueden reordenar, mezclar ni truncar.
   - El receptor exige el tamaño exacto de cada fragmento, ignora los duplicados y los que pertenecen a archivos no anunciados, y verifica el SHA-256 del archivo completo antes de mostrarlo.
-  - Límites contra abusos: 50 MB por archivo, 3 transferencias simultáneas por participante, 150 MB en memoria en total y 60 s sin progreso cancelan la transferencia.
-  - La vista previa solo se muestra si los bytes son realmente PNG, JPEG, GIF o WebP: no se confía en el tipo que declara el emisor. **SVG nunca se previsualiza**, porque puede contener scripts.
+  - Límites contra abusos: 50 MB por archivo, 3 transferencias simultáneas por participante, 150 MB en memoria en curso, 500 MB recibidos por sesión, y 60 s sin progreso cancelan la transferencia. Los archivos de más de 10 MB requieren que el receptor los acepte.
+  - La vista previa solo se muestra si los bytes son realmente PNG, JPEG, GIF o WebP: no se confía en el tipo que declara el emisor. **SVG nunca se previsualiza**, porque puede contener scripts. Antes de mostrarla se leen las dimensiones de la cabecera, y no hay vista previa para imágenes de más de 40 megapíxeles o 16.384 px de lado (protección contra "bombas" de descompresión).
   - Todo lo demás se entrega como `application/octet-stream` y con descarga forzada, así que nunca se interpreta dentro de la app.
   - Los nombres se sanean: sin caracteres de control, sin rutas y sin marcas bidi, para evitar trucos como `factura‮fdp.exe`. Las extensiones ejecutables o activas llevan una advertencia.
+- **Identificación de participantes:** la etiqueta "Participante xxxxxxxx" son 4 bytes del hash de su clave pública. Si dos participantes tienen la misma etiqueta, la app avisa. Los mensajes de participantes verificados llevan ✔.
+- **Clickjacking:** la app no se inicia si se carga dentro de un iframe.
 - **Secreto hacia adelante por sesión:** las claves privadas no son exportables y desaparecen al cerrar la pestaña. No hay ratchet: dentro de una misma sesión se usa la misma clave.
 
 ### Limitaciones
 
+- **Publícala en un origen propio.** En GitHub Pages todos tus proyectos comparten el origen `usuario.github.io`, y cualquier script de otro proyecto tuyo (o de un CDN que use) podría leer los chats guardados o controlar la app. Usa un dominio o subdominio propio, Cloudflare Pages, Netlify o una cuenta u organización dedicada.
 - Quien tenga el código puede entrar a la sala. Compártelo solo con quien corresponda.
 - No hay servidor TURN, así que algunas redes muy restrictivas (NAT simétrico, redes corporativas) pueden impedir la conexión directa.
 - Los relays de Nostr y el otro participante ven tu dirección IP (inherente a WebRTC).

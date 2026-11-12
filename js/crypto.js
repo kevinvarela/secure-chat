@@ -169,7 +169,9 @@ export async function derivePairKeys(identity, peerPublic, binding, roomId) {
     sendKey,
     recvKey,
     safetyNumber: groups.join(' '),
-    label: toHex(peerDigest.slice(0, 2)) // etiqueta corta derivada de la clave, no del peerId
+    // Etiqueta derivada de la clave (no del peerId). 4 bytes: falsificarla exigiría
+    // generar del orden de 2^32 claves; además la app avisa si dos coinciden.
+    label: toHex(peerDigest.slice(0, 4))
   };
 }
 

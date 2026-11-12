@@ -451,3 +451,15 @@ svg { width: 1.25rem; height: 1.25rem; fill: none; stroke: currentColor; stroke-
 .btn-exit svg { width: 1.05rem; height: 1.05rem; }
 .btn-exit:hover { background: var(--err); border-color: var(--err); color: #fff; }
 .btn-exit:focus-visible { outline-color: var(--err); }
+
+/* Nombre de archivo: se recorta la base, la extensión queda siempre visible */
+.file-name { display: flex; min-width: 0; }
+.file-name-base { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.file-name-ext { flex-shrink: 0; white-space: nowrap; }
+.file-actions { display: flex; gap: .4rem; }
+.msg-me .file-actions .btn-ghost { color: #fff; border-color: rgba(255, 255, 255, .5); }
+.framed-block { padding: 2rem; text-align: center; color: var(--muted); }
+
+/* Los hijos flex no deben crecer más allá de la pantalla por contenido largo (p. ej. nombres de archivo) */
+.chat, .messages, .msg-inner, .file-row, .file-info { min-width: 0; }
+.file-info { flex: 1; }
